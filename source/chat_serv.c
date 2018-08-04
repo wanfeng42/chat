@@ -1,18 +1,16 @@
 #include "serv.h"
 
-int g_usernum; //用户个数
-struct config_info *g_info = NULL; //配置文件结构体指针
+int g_usernum;							//用户个数
+struct config_info *g_info = NULL;		//配置文件结构体指针
 struct login_user *g_login_user = NULL; //登录用户链表头
 int g_IO_time_out;
 
 inline void Perror(char *str)
 {
 #ifdef DEBUG
-		perror(str);
+	perror(str);
 #endif
 }
-
-
 
 int config_init(const char *path)
 {
@@ -161,21 +159,6 @@ void accept_cb(evutil_socket_t listenfd, short events, void *arg)
 	bufferevent_enable(bev, EV_READ | EV_WRITE);
 }
 
-/*void login_error(struct bufferevent *bev, struct login_user *self)
-{
-	if (self == g_login_user)
-	{
-		g_login_user = g_login_user->next;
-		free(self);
-	}
-	else
-	{
-		self->prev->next = self->next;
-		free(self);
-	}
-	
-	bufferevent_free(bev);bufferevent_write(bev, "\002\061\003\002\060\003", 6);
-}*/
 int login_confirm(char *name, char *passwd)
 {
 	struct user_list *head;

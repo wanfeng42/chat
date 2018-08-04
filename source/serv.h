@@ -25,7 +25,7 @@
 
 #define MAXBUFLEN 1024 //最大缓冲区长度
 #define MAXSTRLEN 128  //用户名和密码最大长度
-#define SESSLEN 16 //最大sess长度
+#define SESSLEN 16	 //最大sess长度
 #define MAXUSERNUM 100 //最大用户数量
 #define DEBUG
 
@@ -62,8 +62,8 @@ struct login_user
 	struct login_user *next;
 };
 
-extern int g_usernum; //用户个数
-extern struct config_info *g_info; //配置文件结构体指针
+extern int g_usernum;					//用户个数
+extern struct config_info *g_info;		//配置文件结构体指针
 extern struct login_user *g_login_user; //登录用户链表头
 extern int g_IO_time_out;
 
@@ -76,8 +76,6 @@ extern int g_IO_time_out;
 	LOGOUT
 }*/
 void Perror(char *str);
-
-
 
 int config_init(const char *path);
 

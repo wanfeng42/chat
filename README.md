@@ -1,7 +1,5 @@
 # README
 
-## gcc -Wall -g serv_one_to_one.c -o serv -levent -levent_pthreads
-
 ## 消息结构（对服务器）：
 
 ### 消息中每一个单独的部分都由字节0x02、0x03包围
