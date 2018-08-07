@@ -1,9 +1,9 @@
 CC = gcc
 PROGS = serv
 CFLAGS = -Wall -g
-LIBS = -levent -levent_pthreads
+LIBS = -levent -levent_pthreads -lpthread
 all: ${PROGS}
-serv:chat_serv.o protocol_process.o serv.h
+serv:chat_serv.o protocol_process.o threadpool.o serv.h
 	${CC} ${CFLAGS}   -o $@ $^  ${INCLUDE}  ${LIBS}
 
 chat_serv.o:serv.h

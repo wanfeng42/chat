@@ -4,8 +4,10 @@ int g_usernum;							//用户个数
 struct config_info *g_info = NULL;		//配置文件结构体指针
 struct login_user *g_login_user = NULL; //登录用户链表头
 int g_IO_time_out;
+thread_pool *pool; //线程池
 
-inline void Perror(char *str)
+inline void
+Perror(char *str)
 {
 #ifdef DEBUG
 	perror(str);
@@ -442,6 +444,132 @@ int send_msg_to_chat_room(struct bufferevent *bev, struct login_user *self)
 	return 1;
 }
 
+void *file_transfer(void *arg) //传给线程池的任务
+{
+	char buf[MAXBUFLEN];
+	int nread = 0;
+	int nremain = 0;
+	char *fptr, *tptr;
+	struct threadpool_arg *tparg = (struct threadpool_arg *)arg;
+	struct bufferevent *bev = tparg->bev;
+	struct login_user *self = tparg->self;
+	//获取session
+	if (get_session(bev, buf) == -1)
+	{
+		send_type(bev, 5, 0);
+		bufferevent_enable(bev, EV_READ | EV_WRITE);
+		free(tparg);
+		return NULL;
+	}
+	if (strncmp(buf, self->session, SESSLEN) == 0) //session认证成功
+	{
+		//获取消息长度
+		if (get_remain(bev, &nremain) == -1)
+		{
+			send_type(bev, 5, 0);
+			bufferevent_enable(bev, EV_READ | EV_WRITE);
+			free(tparg);
+			return NULL;
+		}
+		//获取目标用户的name
+
+		if (get_msg(bev, nremain, buf) == -1)
+		{
+			send_type(bev, 5, 0);
+			fprintf(stderr, "get_msg error, line = %d\n", __LINE__);
+			evbuffer_drain(bufferevent_get_input(bev), 1024);
+			bufferevent_enable(bev, EV_READ | EV_WRITE);
+			free(tparg);
+			return NULL;
+		}
+
+		fptr = memchr(buf, 0x02, nremain);
+		tptr = memchr(fptr, 0x03, nremain);
+		if (fptr == NULL || tptr == NULL)
+		{
+			fprintf(stderr, "read_error,line %d\n", __LINE__);
+			evbuffer_drain(bufferevent_get_input(bev), 1024);
+			send_type(bev, 5, 0);
+			bufferevent_enable(bev, EV_READ | EV_WRITE);
+			free(tparg);
+			return NULL;
+		}
+		fptr++;
+		fprintf(stderr, "message to %s\n", fptr);
+
+		//寻找登录用户中是否存在目标用户
+		struct login_user *p = g_login_user;
+		while (p)
+		{
+			if (strncmp(fptr, p->name, tptr - fptr) == 0 && p->is_loged_in == 1)
+			{
+				break;
+			}
+			p = p->next;
+		}
+
+		if (p) //找到了，将剩余消息转发。
+		{
+			//发送消息头
+			send_type(p->bev, 5, 1);
+			send_length(p->bev, nremain);
+			bufferevent_write(p->bev, buf, nremain);
+
+			if (get_remain(bev, &nremain) == -1)
+			{
+				send_type(bev, 5, 0);
+				bufferevent_enable(bev, EV_READ | EV_WRITE);
+				free(tparg);
+				return NULL;
+			}
+			if (get_msg(bev, nremain, buf) == -1)
+			{
+				send_type(bev, 5, 0);
+				fprintf(stderr, "get_msg error, line = %d\n", __LINE__);
+				evbuffer_drain(bufferevent_get_input(bev), 1024);
+				bufferevent_enable(bev, EV_READ | EV_WRITE);
+				free(tparg);
+				return NULL;
+			}
+
+			send_length(p->bev, nremain);
+			bufferevent_write(p->bev, buf, nremain);
+
+			get_remain(bev, &nremain);
+			send_length(p->bev, nremain);
+
+			while (nremain > 0)
+			{
+				nread = bufferevent_read(bev, buf, MAXBUFLEN);
+				nremain -= nread;
+				bufferevent_write(p->bev, buf, nread);
+			}
+			bufferevent_enable(bev, EV_READ | EV_WRITE);
+			free(tparg);
+		}
+		else //没找到
+		{
+			fprintf(stderr, "user not found OR not online\n");
+			evbuffer_drain(bufferevent_get_input(bev), 1024);
+			send_type(bev, 5, 0);
+			bufferevent_enable(bev, EV_READ | EV_WRITE);
+			free(tparg);
+			return NULL;
+		}
+	}
+	else //session认证失败
+	{
+		fprintf(stderr, "MASSAGE: wrong session, sess = %.16s, self sess = %.16s\n", buf, self->session);
+		evbuffer_drain(bufferevent_get_input(bev), 1024);
+		send_type(bev, 5, 0);
+		bufferevent_enable(bev, EV_READ | EV_WRITE);
+		free(tparg);
+		return NULL;
+	}
+
+	return NULL;
+}
+
 int sign_up(struct bufferevent *bev, struct login_user *self)
 {
 	//
@@ -482,6 +610,14 @@ void buffer_read_cb(struct bufferevent *bev, void *arg)
 	else if (buf[1] == '4') //公共消息转发
 	{
 		send_msg_to_chat_room(bev, self);
+	}
+	else if (buf[1] == '5') //文件传输
+	{
+		bufferevent_disable(bev, EV_READ | EV_WRITE);
+		struct threadpool_arg *thrarg = malloc(sizeof(struct threadpool_arg));
+		thrarg->bev = bev;
+		thrarg->self = self;
+		add_task(pool, file_transfer, thrarg);
 	}
 }
 
@@ -541,13 +677,15 @@ int main()
 {
 	config_init("./config");
 	evthread_use_pthreads();
-	printf("portoto = %d\nportcr = %d\nportfr = %d\n", g_info->portoto, g_info->portcr, g_info->portfr);
+	/*printf("portoto = %d\nportcr = %d\nportfr = %d\n", g_info->portoto, g_info->portcr, g_info->portfr);
 	struct user_list *p = g_info->head;
 	while (p)
 	{
 		printf("name = %s\npasswd = %s\n", p->name, p->passwd);
 		p = p->next;
-	}
+	}*/
+	pool = malloc(sizeof(thread_pool));
+	init_pool(pool, 17);
 	run();
 	return 0;
 }

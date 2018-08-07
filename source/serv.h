@@ -23,6 +23,8 @@
 #include <event2/buffer.h>
 #include <event2/thread.h>
 
+#include "threadpool.h"
+
 #define MAXBUFLEN 1024 //最大缓冲区长度
 #define MAXSTRLEN 128  //用户名和密码最大长度
 #define SESSLEN 16	 //最大sess长度
@@ -60,6 +62,12 @@ struct login_user
 	int is_loged_in;
 	struct login_user *prev;
 	struct login_user *next;
+};
+
+struct threadpool_arg
+{
+	struct bufferevent *bev;
+	struct login_user *self;
 };
 
 extern int g_usernum;					//用户个数
